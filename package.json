@@ -1,0 +1,28 @@
+{
+  "name": "ai-travel-guide",
+  "version": "1.0.0",
+  "description": "AI-powered travel itinerary planner using Groq Llama 70B",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "keywords": [
+    "ai",
+    "travel",
+    "groq",
+    "llama",
+    "nodejs",
+    "express"
+  ],
+  "author": "Your Name",
+  "license": "ISC",
+  "dependencies": {
+    "cors": "^2.8.6",
+    "dotenv": "^17.2.4",
+    "express": "^4.18.2",
+    "groq-sdk": "^0.37.0",
+    "helmet": "^8.1.0"
+  }
+}
