@@ -288,8 +288,7 @@ function flightLinks(destination) {
 function trainLinks() {
   return `
     <div style="margin-top:12px;">
-      <h3>Train Search Links</h3>
-      <a href="https://www.irctc.co.in/nget/train-search" target="_blank">IRCTC Official Train Search</a>
+      
     </div>
   `;
 }
@@ -298,8 +297,7 @@ function busLinks(destination) {
   destination = encodeURIComponent(destination);
   return `
     <div style="margin-top:12px;">
-      <h3>Bus Search Links</h3>
-      <a href="https://www.redbus.in/search?to=${destination}" target="_blank">RedBus</a>
+      
     </div>
   `;
 }
@@ -313,7 +311,7 @@ form.addEventListener("submit", async (e) => {
 
   loading.style.display = "block";
   results.style.display = "none";
-  downloadBtn.style.display = "inline-block";
+ 
   itineraryDiv.innerHTML = "";
 
   const destination = document.getElementById("destination").value;
@@ -392,10 +390,13 @@ ${Array.from({ length: days }, (_, i) => `
 
     console.log("Itinerary HTML:", itineraryDiv.innerHTML);
 
-
-
     loading.style.display = "none";
     results.style.display = "block";
+
+    // Show transport, download, and chat after itinerary loads
+    document.getElementById("transport-section").style.display = "block";
+    document.getElementById("chat-section").style.display = "block";
+    document.getElementById("download-pdf").style.display = "inline-block";
 
   } catch (err) {
     itineraryDiv.innerHTML = `<p style="color:red;">Error: ${err}</p>`;
@@ -409,7 +410,9 @@ ${Array.from({ length: days }, (_, i) => `
 //  2) FLIGHTS SECTION
 // =========================================================
 showFlightsBtn.addEventListener("click", async () => {
+    flightsDiv.style.display = "block";  // ADD THIS
   flightsDiv.innerHTML = "⏳ Loading flights...";
+
 
   const destination = document.getElementById("destination").value;
 
@@ -447,6 +450,7 @@ STRICT HTML ONLY.
 //  3) TRAINS SECTION
 // =========================================================
 showTrainsBtn.addEventListener("click", async () => {
+  trainsDiv.style.display = "block";  // ADD THIS
   trainsDiv.innerHTML = "⏳ Loading trains...";
 
   const destination = document.getElementById("destination").value;
@@ -455,7 +459,7 @@ showTrainsBtn.addEventListener("click", async () => {
 You are a travel expert. Provide exactly 3 TRAIN options to reach ${destination}.
 ALL COSTS MUST BE IN INDIAN RUPEES (₹). Never use USD.
 
-
+GIVE LINKS DEPENDING ON COUNTRY
 STRICT HTML ONLY.
 
 <h2>Trains to ${destination}</h2>
@@ -485,6 +489,7 @@ STRICT HTML ONLY.
 //  4) BUSES SECTION
 // =========================================================
 showBusesBtn.addEventListener("click", async () => {
+  busesDiv.style.display = "block";  // ADD THIS
   busesDiv.innerHTML = "⏳ Loading buses...";
 
   const destination = document.getElementById("destination").value;
@@ -493,7 +498,7 @@ showBusesBtn.addEventListener("click", async () => {
 You are a travel expert. Provide exactly 3 BUS options to reach ${destination}.
 ALL COSTS MUST BE IN INDIAN RUPEES (₹). Never use USD.
 
-
+GIVE LINKS DEPENDING ON COUNTRY
 STRICT HTML ONLY.
 
 <h2>Buses to ${destination}</h2>
@@ -524,6 +529,7 @@ STRICT HTML ONLY.
 //  5) HOTELS SECTION
 // =========================================================
 showHotelsBtn.addEventListener("click", async () => {
+  hotelsDiv.style.display = "block";  // ADD THIS
   hotelsDiv.innerHTML = "⏳ Loading hotels...";
 
   const destination = document.getElementById("destination").value;
@@ -533,7 +539,7 @@ showHotelsBtn.addEventListener("click", async () => {
 You are a travel expert. Suggest exactly 3 hotels in ${destination}, based strictly on the user's budget: ${budget}.
 ALL COSTS MUST BE IN INDIAN RUPEES (₹). Never use USD.
 
-
+GIVE LINKS DEPENDING ON COUNTRY
 STRICT HTML ONLY.
 
 <h2>Hotels</h2>
