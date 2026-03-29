@@ -405,6 +405,14 @@ ${Array.from({ length: days }, (_, i) => `
   <li><strong>Evening:</strong> culture/food local experience</li>
 </ul>`).join("")}
 
+For every place, landmark, restaurant, or attraction mentioned in the itinerary,
+wrap the place name itself in a Google Maps link like this:
+<a href="https://www.google.com/maps/search/?api=1&query=PLACE_NAME+${destination}" target="_blank" style="color:#2563eb; text-decoration:underline; font-weight:600;">PLACE_NAME</a>
+
+Example: "Visit <a href="https://www.google.com/maps/search/?api=1&query=Hyde+Park+London" target="_blank" style="color:#2563eb; text-decoration:underline; font-weight:600;">Hyde Park</a> at 8am"
+
+IMPORTANT: The place name must always be visible as the link text. Never add a separate emoji. Never remove the place name from the text.
+
 <h2>Food & Local Cuisine</h2>
 <ul>
 <li><strong>Must-try dishes:</strong> 4–5 items</li>
