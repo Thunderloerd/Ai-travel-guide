@@ -66,19 +66,17 @@
         <input type="number" id="budget" placeholder="e.g., 30000" />
       </div>
 
-      <div class="form-group">
-  <label for="preferences">Travel Preference</label>
-  <select id="preferences">
-    <option value="">Select a preference</option>
-    <option value="Adventure">Adventure & Outdoors</option>
-    <option value="Culture">Culture & History</option>
-    <option value="Food">Food & Local Cuisine</option>
-    <option value="Relaxation">Relaxation & Leisure</option>
-    <option value="Family">Family Friendly</option>
-    <option value="Budget">Budget Travel</option>
-    <option value="Luxury">Luxury Travel</option>
-    <option value="Spiritual">Spiritual / Pilgrimage</option>
-  </select>
+<div class="form-group">
+  <label>Travel Preference (Select max 2)</label>
+  <div id="preferences-chips" class="chips-container">
+    <button type="button" class="chip" data-value="Adventure">Adventure</button>
+    <button type="button" class="chip" data-value="Culture">Culture</button>
+    <button type="button" class="chip" data-value="Food">Food</button>
+    <button type="button" class="chip" data-value="Relaxation">Relaxation</button>
+    <button type="button" class="chip" data-value="Family">Family</button>
+    <button type="button" class="chip" data-value="Spiritual">Spiritual</button>
+  </div>
+  <input type="hidden" id="preferences" value="" />
 </div>
 
 
