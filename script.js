@@ -351,11 +351,26 @@ form.addEventListener("submit", async (e) => {
   itineraryDiv.innerHTML = "";
 
   const destination = document.getElementById("destination").value;
+  const startingFrom = document.getElementById("starting-from").value.trim();
   const budget = document.getElementById("budget").value;
   const preferences = document.getElementById("preferences").value;
   const days = document.getElementById("days").value;
 
+  // Build the "Getting There" block if a starting location is provided
+  const gettingThereBlock = startingFrom ? `
+IMPORTANT: The user is starting their trip from ${startingFrom}. Always recommend the most realistic and commonly used mode of transport that people actually use in real life — for international destinations this will almost always be a flight, for nearby cities it may be train, bus, or drive. Never suggest driving for intercontinental or international routes. Never suggest impossible or impractical routes.
+
+Your itinerary MUST begin with a section titled '🚀 Getting There' placed before Day 1. This section must include:
+- The realistic mode of transport (flight / train / bus / drive — whichever people actually use)
+- Estimated one-way travel time
+- Estimated one-way travel cost in INR
+- Estimated return travel cost in INR
+
+After deducting total travel cost (to + from) from the overall budget, plan the remaining itinerary with the leftover amount. Clearly state the remaining budget at the start of Day 1.
+` : '';
+
   const prompt = `
+${gettingThereBlock}
 BUDGET CONSTRAINT: The total trip cost MUST be exactly within ₹${budget}. 
 This is a HARD LIMIT. Every single cost in the breakdown must add up to less than or equal to ₹${budget}.
 Do NOT suggest anything that exceeds this budget.
