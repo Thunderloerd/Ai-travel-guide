@@ -589,6 +589,49 @@ button:hover {
     animation: fadeIn 0.4s ease-out;
 }
 
+.trip-validator-card {
+    margin-top: 20px;
+    padding: 18px 20px;
+    background: var(--background);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--primary);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-sm);
+    color: var(--text-main);
+    animation: fadeIn 0.4s ease-out;
+}
+
+.trip-validator-card.trip-validator-warning {
+    border-left-color: var(--accent);
+}
+
+.trip-validator-card.trip-validator-moderate,
+.trip-validator-card.trip-validator-review {
+    border-left-color: #f59e0b;
+}
+
+.trip-validator-card.trip-validator-okay {
+    border-left-color: #22c55e;
+}
+
+.trip-validator-row {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    padding: 6px 0;
+    color: var(--text-main);
+}
+
+.trip-validator-row + .trip-validator-row {
+    border-top: 1px solid var(--border);
+}
+
+.trip-validator-label {
+    min-width: 90px;
+    font-weight: 700;
+    color: var(--text-main);
+}
+
 @keyframes fadeIn {
     from {
         opacity: 0;

@@ -290,6 +290,7 @@ preferenceChips.forEach(chip => {
 
 // Backend endpoint
 const BACKEND_URL = "/generate";
+let latestItineraryPrompt = "";
 
 // DOM elements
 const form = document.getElementById("travel-form");
@@ -338,6 +339,303 @@ function busLinks(destination) {
   `;
 }
 
+let tripValidatorRunId = 0;
+
+function getPrimaryDestination(destination) {
+  return destination.split(",")[0].trim();
+}
+
+function getWeatherSummary(weatherCode, maxTemp) {
+  const code = Number(weatherCode);
+  const temp = Number.isFinite(Number(maxTemp)) ? `${Math.round(Number(maxTemp))}°C expected` : "forecast available";
+
+  if (code === 0) return `Clear sky, ${temp}`;
+  if ([1, 2].includes(code)) return `Mostly sunny, ${temp}`;
+  if (code === 3) return `Cloudy, ${temp}`;
+  if ([45, 48].includes(code)) return `Foggy, ${temp}`;
+  if ([51, 53, 55, 56, 57].includes(code)) return `Drizzle possible, ${temp}`;
+  if ([61, 63, 65, 66, 67, 80, 81, 82].includes(code)) return `Rain expected, ${temp}`;
+  if ([71, 73, 75, 77, 85, 86].includes(code)) return `Snow expected, ${temp}`;
+  if ([95, 96, 99].includes(code)) return `Thunderstorms possible, ${temp}`;
+
+  return `Mixed conditions, ${temp}`;
+}
+
+function getBudgetValidationMessage(budget, days) {
+  const parsedBudget = Number(budget);
+  const parsedDays = Number(days);
+
+  if (!Number.isFinite(parsedBudget) || !Number.isFinite(parsedDays) || parsedDays <= 0) {
+    return {
+      status: "review",
+      message: "Add a valid budget and trip length to validate daily spend."
+    };
+  }
+
+  let estimatedFlightCost = 0;
+  const itineraryText = itineraryDiv.innerText || "";
+  const travelCostLine = itineraryText.split("\n").find(line => /total\s+travel\s+cost/i.test(line) && line.includes("₹"));
+  if (travelCostLine) {
+    const travelCostMatch = travelCostLine.match(/₹\s*([\d,]+)/);
+    if (travelCostMatch) {
+      const parsedTravelCost = parseInt(travelCostMatch[1].replace(/,/g, ""), 10);
+      if (Number.isFinite(parsedTravelCost)) estimatedFlightCost = parsedTravelCost;
+    }
+  }
+
+  const perDayBudget = (parsedBudget - estimatedFlightCost) / parsedDays;
+
+  if (perDayBudget < 1000) {
+    return {
+      status: "warning",
+      message: `Very tight budget at ₹${Math.round(perDayBudget).toLocaleString("en-IN")} per day.`
+    };
+  }
+
+  if (perDayBudget <= 2500) {
+    return {
+      status: "moderate",
+      message: `Moderate budget at ₹${Math.round(perDayBudget).toLocaleString("en-IN")} per day.`
+    };
+  }
+
+  return {
+    status: "okay",
+    message: `Budget looks comfortable at ₹${Math.round(perDayBudget).toLocaleString("en-IN")} per day.`
+  };
+}
+
+async function fetchWeatherValidation(destination) {
+  const cityName = getPrimaryDestination(destination);
+  if (!cityName) return null;
+
+  const geocodingUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(cityName)}&count=1`;
+  const geocodingResponse = await fetch(geocodingUrl);
+  if (!geocodingResponse.ok) return null;
+
+  const geocodingData = await geocodingResponse.json();
+  const location = geocodingData.results && geocodingData.results[0];
+  if (!location) return null;
+
+  const forecastUrl = `https://api.open-meteo.com/v1/forecast?latitude=${location.latitude}&longitude=${location.longitude}&daily=weathercode,temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=7`;
+  const forecastResponse = await fetch(forecastUrl);
+  if (!forecastResponse.ok) return null;
+
+  const forecastData = await forecastResponse.json();
+  const daily = forecastData.daily;
+  if (!daily || !daily.weathercode || !daily.temperature_2m_max) return null;
+
+  return getWeatherSummary(daily.weathercode[0], daily.temperature_2m_max[0]);
+}
+
+function renderTripValidatorCard({ weatherSummary, budgetValidation }) {
+  const existingCard = document.getElementById("trip-validator-card");
+  if (existingCard) existingCard.remove();
+
+  const card = document.createElement("div");
+  card.id = "trip-validator-card";
+  card.className = `trip-validator-card trip-validator-${budgetValidation.status}`;
+
+  const rows = [];
+  if (weatherSummary) {
+    rows.push(`
+      <div class="trip-validator-row">
+        <span class="trip-validator-label">Weather:</span>
+        <span>${weatherSummary}</span>
+      </div>
+    `);
+  }
+
+  rows.push(`
+    <div class="trip-validator-row">
+      <span class="trip-validator-label">Budget:</span>
+      <span>${budgetValidation.message}</span>
+    </div>
+  `);
+
+  rows.push(`
+    <div class="trip-validator-row">
+      <span class="trip-validator-label">✅ Overall:</span>
+      <span>${budgetValidation.status === "okay" ? "Your trip looks good!" : "Review your plan before booking"}</span>
+    </div>
+  `);
+
+  card.innerHTML = rows.join("");
+  itineraryDiv.insertAdjacentElement("afterend", card);
+}
+
+async function triggerTripValidator() {
+  const currentRunId = ++tripValidatorRunId;
+  const existingCard = document.getElementById("trip-validator-card");
+  if (existingCard) existingCard.remove();
+
+  const destination = document.getElementById("destination").value;
+  const budget = document.getElementById("budget").value;
+  const days = document.getElementById("days").value;
+  const budgetValidation = getBudgetValidationMessage(budget, days);
+
+  let weatherSummary = null;
+  try {
+    weatherSummary = await fetchWeatherValidation(destination);
+  } catch (err) {
+    weatherSummary = null;
+  }
+
+  if (currentRunId !== tripValidatorRunId) return;
+  renderTripValidatorCard({ weatherSummary, budgetValidation });
+}
+
+async function runBudgetIntegrityCheck() {
+  const itineraryText = itineraryDiv.innerText || "";
+  const totalLine = itineraryText.split("\n").find(line => /total(?:\s+cost)?\s*:/i.test(line) && line.includes("₹"));
+  if (!totalLine) return;
+
+  const totalMatch = totalLine.match(/total(?:\s+cost)?\s*:\s*₹\s*([\d,]+)/i);
+  if (!totalMatch) return;
+
+  const extractedTotal = parseInt(totalMatch[1].replace(/,/g, ""), 10);
+  const userBudget = parseInt(document.getElementById("budget").value.replace(/,/g, ""), 10);
+  if (!Number.isFinite(extractedTotal) || !Number.isFinite(userBudget) || extractedTotal <= userBudget) return;
+
+  const originalLoadingText = loading.textContent;
+  const existingBadge = document.getElementById("budget-auto-corrected-badge");
+  if (existingBadge) existingBadge.remove();
+
+  try {
+    loading.textContent = "⚙️ Auto-correcting itinerary to fit budget...";
+    loading.style.display = "block";
+
+    const correctedPrompt = `${latestItineraryPrompt}
+
+STRICT RULE: The total of ALL costs in your itinerary
+MUST NOT exceed ₹${userBudget}.
+This is non-negotiable. Double check your numbers before responding.`;
+
+    const retryResponse = await fetch(BACKEND_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt: correctedPrompt })
+    });
+    if (!retryResponse.ok) return;
+
+    const retryData = await retryResponse.json();
+    if (!retryData.text) return;
+
+    itineraryDiv.innerHTML = retryData.text;
+
+    const badge = document.createElement("div");
+    badge.id = "budget-auto-corrected-badge";
+    badge.textContent = "✨ Itinerary was auto-corrected to fit your budget";
+    badge.style.display = "inline-block";
+    badge.style.margin = "0 0 14px";
+    badge.style.padding = "8px 14px";
+    badge.style.background = "var(--surface)";
+    badge.style.border = "1px solid #22c55e";
+    badge.style.borderRadius = "999px";
+    badge.style.boxShadow = "var(--shadow-sm)";
+    badge.style.color = "var(--text-main)";
+    badge.style.fontSize = "0.95rem";
+    badge.style.fontWeight = "600";
+    badge.style.animation = "fadeIn 0.4s ease-out";
+    itineraryDiv.insertAdjacentElement("beforebegin", badge);
+
+    setTimeout(() => {
+      const currentBadge = document.getElementById("budget-auto-corrected-badge");
+      if (currentBadge) currentBadge.remove();
+    }, 5000);
+  } catch (err) {
+    // Keep the original itinerary if the correction request fails.
+  } finally {
+    loading.textContent = originalLoadingText;
+    loading.style.display = "none";
+  }
+}
+
+function renderBudgetChoiceCardIfNeeded(generatedHtml) {
+  const currentChoiceCard = document.getElementById("budget-choice-card");
+  if (currentChoiceCard) currentChoiceCard.remove();
+
+  const preview = document.createElement("div");
+  preview.innerHTML = generatedHtml || "";
+  const generatedText = (preview.innerText || preview.textContent || "").trim();
+  if (!/^⚠️?\s*(Budget Alert|Warning: This budget may be insufficient)/i.test(generatedText)) return false;
+
+  let warningText = generatedText;
+  const itineraryStart = warningText.search(/\n\s*(?:🚀\s*)?(Getting There|Overview|Estimated Cost|Day\s+1|\d+-Day Itinerary)\b/i);
+  if (itineraryStart > 0) {
+    warningText = warningText.slice(0, itineraryStart).trim();
+  }
+
+  const budgetChoiceCard = document.createElement("div");
+  budgetChoiceCard.id = "budget-choice-card";
+  budgetChoiceCard.style.margin = "0 0 20px";
+  budgetChoiceCard.style.padding = "18px 20px";
+  budgetChoiceCard.style.background = "var(--surface)";
+  budgetChoiceCard.style.border = "1px solid var(--border)";
+  budgetChoiceCard.style.borderRadius = "var(--radius)";
+  budgetChoiceCard.style.boxShadow = "var(--shadow-sm)";
+  budgetChoiceCard.style.animation = "fadeIn 0.4s ease-out";
+
+  const warning = document.createElement("p");
+  warning.style.margin = "0 0 16px";
+  warning.style.color = "var(--text-main)";
+  warning.style.whiteSpace = "pre-line";
+  warning.textContent = warningText;
+
+  const actions = document.createElement("div");
+  actions.style.display = "flex";
+  actions.style.gap = "12px";
+  actions.style.flexWrap = "wrap";
+
+  const alternativesButton = document.createElement("button");
+  alternativesButton.id = "btn-alternative-destinations";
+  alternativesButton.type = "button";
+  alternativesButton.textContent = "Show Me Alternatives";
+  alternativesButton.style.flex = "1";
+  alternativesButton.style.minWidth = "180px";
+  alternativesButton.style.background = "#0f766e";
+  alternativesButton.style.color = "white";
+  alternativesButton.style.border = "1px solid var(--border)";
+  alternativesButton.style.borderRadius = "var(--radius)";
+  alternativesButton.style.padding = "12px 16px";
+  alternativesButton.style.fontWeight = "700";
+  alternativesButton.addEventListener("click", () => {
+    console.log("PHASE 2 - Alternative destinations clicked");
+  });
+
+  const continueButton = document.createElement("button");
+  continueButton.id = "btn-continue-anyway";
+  continueButton.type = "button";
+  continueButton.textContent = "⚠️ Continue With Original Plan";
+  continueButton.style.flex = "1";
+  continueButton.style.minWidth = "220px";
+  continueButton.style.background = "#f59e0b";
+  continueButton.style.color = "white";
+  continueButton.style.border = "1px solid var(--border)";
+  continueButton.style.borderRadius = "var(--radius)";
+  continueButton.style.padding = "12px 16px";
+  continueButton.style.fontWeight = "700";
+  continueButton.addEventListener("click", () => {
+    console.log("PHASE 2 - Continue anyway clicked");
+  });
+
+  const note = document.createElement("p");
+  note.style.margin = "14px 0 0";
+  note.style.color = "var(--text-light)";
+  note.style.fontSize = "0.95rem";
+  note.textContent = "Alternatives will suggest destinations within your budget. Original plan will show the trip with honest cost warnings.";
+
+  actions.appendChild(alternativesButton);
+  actions.appendChild(continueButton);
+  budgetChoiceCard.appendChild(warning);
+  budgetChoiceCard.appendChild(actions);
+  budgetChoiceCard.appendChild(note);
+
+  itineraryDiv.innerHTML = "";
+  itineraryDiv.appendChild(budgetChoiceCard);
+  return true;
+}
+
 
 // =========================================================
 //  1) GENERATE ITINERARY  (NO FLIGHTS / TRAINS / BUSES INSIDE)
@@ -349,12 +647,172 @@ form.addEventListener("submit", async (e) => {
   results.style.display = "none";
 
   itineraryDiv.innerHTML = "";
+  const existingResearchCard = document.getElementById("agent-research-card");
+  if (existingResearchCard) existingResearchCard.remove();
+  const existingBudgetWarningCard = document.getElementById("budget-warning-card");
+  if (existingBudgetWarningCard) existingBudgetWarningCard.remove();
+  const existingBudgetChoiceCard = document.getElementById("budget-choice-card");
+  if (existingBudgetChoiceCard) existingBudgetChoiceCard.remove();
 
   const destination = document.getElementById("destination").value;
   const startingFrom = document.getElementById("starting-from").value.trim();
   const budget = document.getElementById("budget").value;
   const preferences = document.getElementById("preferences").value;
   const days = document.getElementById("days").value;
+  const originalLoadingText = loading.textContent;
+  loading.textContent = "Researching your destination... ✈️";
+
+  const getDestinationCity = () => destination.split(",")[0].trim();
+
+  const getForecastCondition = (weatherCode) => {
+    const code = Number(weatherCode);
+
+    if (code === 0) return "clear sky";
+    if ([1, 2].includes(code)) return "mostly sunny";
+    if (code === 3) return "cloudy";
+    if ([45, 48].includes(code)) return "foggy";
+    if ([51, 53, 55, 56, 57].includes(code)) return "drizzle possible";
+    if ([61, 63, 65, 66, 67, 80, 81, 82].includes(code)) return "rain expected";
+    if ([71, 73, 75, 77, 85, 86].includes(code)) return "snow expected";
+    if ([95, 96, 99].includes(code)) return "thunderstorms possible";
+
+    return "mixed conditions";
+  };
+
+  const fetchWeatherContext = async () => {
+    try {
+      const cityName = getDestinationCity();
+      if (!cityName) return "";
+
+      const geocodingUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(cityName)}&count=1`;
+      const geocodingResponse = await fetch(geocodingUrl);
+      if (!geocodingResponse.ok) return "";
+
+      const geocodingData = await geocodingResponse.json();
+      const location = geocodingData.results && geocodingData.results[0];
+      if (!location) return "";
+
+      const forecastUrl = `https://api.open-meteo.com/v1/forecast?latitude=${location.latitude}&longitude=${location.longitude}&daily=weathercode,temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=7`;
+      const forecastResponse = await fetch(forecastUrl);
+      if (!forecastResponse.ok) return "";
+
+      const forecastData = await forecastResponse.json();
+      const daily = forecastData.daily;
+      if (!daily || !daily.weathercode || !daily.temperature_2m_max || !daily.temperature_2m_min) return "";
+
+      const minTemp = Math.round(Math.min(...daily.temperature_2m_min));
+      const maxTemp = Math.round(Math.max(...daily.temperature_2m_max));
+      const condition = getForecastCondition(daily.weathercode[0]);
+
+      return `Weather: ${condition}, ${minTemp}-${maxTemp}°C expected`;
+    } catch (err) {
+      return "";
+    }
+  };
+
+  const fetchWikipediaContext = async () => {
+    try {
+      const cityName = getDestinationCity();
+      if (!cityName) return "";
+
+      const wikipediaUrl = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(cityName)}`;
+      const wikipediaResponse = await fetch(wikipediaUrl);
+      if (!wikipediaResponse.ok) return "";
+
+      const wikipediaData = await wikipediaResponse.json();
+      if (!wikipediaData.extract) return "";
+
+      const sentences = wikipediaData.extract.match(/[^.!?]+[.!?]+/g);
+      const summary = sentences ? sentences.slice(0, 2).join(" ").trim() : wikipediaData.extract.trim();
+
+      return summary;
+    } catch (err) {
+      return "";
+    }
+  };
+
+  const fetchAgentResearchInsights = async (weatherSummary, wikipediaSummary) => {
+    try {
+      const insightPrompt = `You are a smart travel agent assistant. Given this raw data:
+Weather: ${weatherSummary}
+Destination Info: ${wikipediaSummary}
+
+Write exactly 2 short, friendly, helpful insights for a traveler.
+Format as exactly 2 lines:
+️ [one sentence weather tip based on actual temperature and condition]
+ [one sentence practical travel insight based on the destination info]
+
+You MUST respond with EXACTLY 2 lines, no more, no less.
+Line 1 must start with ️
+Line 2 must start with
+Each line max 20 words.
+Do not combine them. Do not add any other text.
+
+Be specific, warm, and useful. Max 20 words per line.`;
+
+      const insightResponse = await fetch(BACKEND_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: insightPrompt })
+      });
+      if (!insightResponse.ok) return "";
+
+      const insightData = await insightResponse.json();
+      return insightData.text || "";
+    } catch (err) {
+      return "";
+    }
+  };
+
+  const isIndianDestination = () => {
+    const cityName = getDestinationCity().toLowerCase();
+    const destinationText = destination.toLowerCase();
+    const indianCities = [
+      "agra", "ahmedabad", "ajmer", "amritsar", "aurangabad", "bengaluru", "bangalore",
+      "bhopal", "bhubaneswar", "chandigarh", "chennai", "coimbatore", "darjeeling",
+      "delhi", "dehradun", "goa", "gurgaon", "gurugram", "guwahati", "hyderabad",
+      "indore", "jaipur", "jaisalmer", "jodhpur", "kanpur", "kochi", "kolkata",
+      "leh", "lucknow", "madurai", "manali", "mangalore", "mumbai", "mysuru", "mysore",
+      "nainital", "noida", "ooty", "pune", "rishikesh", "shimla", "srinagar", "surat",
+      "thiruvananthapuram", "udaipur", "varanasi", "visakhapatnam"
+    ];
+
+    return destinationText.includes("india") || indianCities.includes(cityName);
+  };
+
+  const renderBudgetWarningCard = () => {
+    const currentWarningCard = document.getElementById("budget-warning-card");
+    if (currentWarningCard) currentWarningCard.remove();
+
+    const parsedBudget = Number(budget);
+    const parsedDays = Number(days);
+    if (!Number.isFinite(parsedBudget) || !Number.isFinite(parsedDays) || parsedDays <= 0) return;
+
+    const indianDestination = isIndianDestination();
+    let warningMessage = "";
+
+    if (!indianDestination && parsedBudget < 80000) {
+      warningMessage = `⚠️ Your budget of ₹${parsedBudget.toLocaleString("en-IN")} may not cover flights to ${destination}. International flights from India typically cost ₹40,000–₹80,000+. Consider increasing your budget or choosing a closer destination.`;
+    } else if (indianDestination && parsedBudget / parsedDays < 800) {
+      warningMessage = `⚠️ ₹${parsedBudget.toLocaleString("en-IN")} for ${days} days in ${destination} is very tight. You may face difficulty covering food and stay comfortably.`;
+    }
+
+    if (!warningMessage) return;
+
+    const budgetWarningCard = document.createElement("div");
+    budgetWarningCard.id = "budget-warning-card";
+    budgetWarningCard.style.margin = "0 0 20px";
+    budgetWarningCard.style.padding = "16px 18px";
+    budgetWarningCard.style.background = "var(--surface)";
+    budgetWarningCard.style.border = "1px solid var(--accent)";
+    budgetWarningCard.style.borderLeft = "4px solid var(--accent)";
+    budgetWarningCard.style.borderRadius = "var(--radius)";
+    budgetWarningCard.style.boxShadow = "var(--shadow-sm)";
+    budgetWarningCard.style.color = "var(--text-main)";
+    budgetWarningCard.style.animation = "fadeIn 0.4s ease-out";
+    budgetWarningCard.textContent = warningMessage;
+    itineraryDiv.insertAdjacentElement("beforebegin", budgetWarningCard);
+  };
 
   // Build the "Getting There" block if a starting location is provided
   const gettingThereBlock = startingFrom ? `
@@ -441,17 +899,83 @@ IMPORTANT: The place name must always be visible as the link text. Never add a s
 <li>Money-saving tips</li>
 <li>Safety advice</li>
 </ul>
+
+HONESTY RULE: Never invent or assume cheaper prices
+to fit the budget. If flights alone exceed 60% of the
+total budget, clearly state at the top:
+'⚠️ Warning: This budget may be insufficient for this
+destination from India. We recommend a minimum of
+₹[realistic amount] for this trip.'
+Then continue with the best possible plan given the
+actual constraints. Never say 'let's assume' or
+'assuming we found cheaper' — only use realistic estimates.
   `;
 
   try {
+    const weatherSummary = await fetchWeatherContext();
+    console.log("AGENT STEP 1 - Weather:", weatherSummary)
+    const wikipediaSummary = await fetchWikipediaContext();
+    console.log("AGENT STEP 2 - Events:", wikipediaSummary)
+    const researchInsights = await fetchAgentResearchInsights(weatherSummary, wikipediaSummary);
+
+    const agentResearchCard = document.createElement("div");
+    agentResearchCard.id = "agent-research-card";
+    agentResearchCard.style.margin = "0 0 20px";
+    agentResearchCard.style.padding = "18px 20px";
+    agentResearchCard.style.background = "var(--background)";
+    agentResearchCard.style.border = "1px solid var(--border)";
+    agentResearchCard.style.borderLeft = "4px solid var(--primary)";
+    agentResearchCard.style.borderRadius = "var(--radius)";
+    agentResearchCard.style.boxShadow = "var(--shadow-sm)";
+    agentResearchCard.style.color = "var(--text-main)";
+    agentResearchCard.style.animation = "fadeIn 0.4s ease-out";
+    const agentResearchTitle = document.createElement("h3");
+    agentResearchTitle.style.margin = "0 0 12px";
+    agentResearchTitle.style.color = "var(--text-main)";
+    agentResearchTitle.textContent = "Agent Research Complete";
+    const agentResearchInsights = document.createElement("p");
+    agentResearchInsights.style.margin = "6px 0";
+    agentResearchInsights.style.color = "var(--text-main)";
+    agentResearchInsights.style.whiteSpace = "pre-line";
+    agentResearchInsights.textContent = researchInsights || "Research insights are unavailable, but your itinerary will still use the available context.";
+    const agentResearchNote = document.createElement("p");
+    agentResearchNote.style.margin = "12px 0 0";
+    agentResearchNote.style.color = "var(--text-light)";
+    agentResearchNote.style.fontSize = "0.95rem";
+    agentResearchNote.textContent = "This data was used to personalize your itinerary";
+    agentResearchCard.appendChild(agentResearchTitle);
+    agentResearchCard.appendChild(agentResearchInsights);
+    agentResearchCard.appendChild(agentResearchNote);
+    itineraryDiv.insertAdjacentElement("beforebegin", agentResearchCard);
+
+    const enrichedPrompt = `${prompt}
+
+REAL WORLD CONTEXT (use this to make the itinerary more accurate):
+${weatherSummary}
+${wikipediaSummary}
+Use this context to make day-by-day suggestions more accurate.
+For example if weather is hot suggest early morning activities,
+if a famous festival is nearby mention it.`;
+
+    loading.textContent = originalLoadingText;
+
+    const systemPrompt = enrichedPrompt;
+    console.log("AGENT STEP 3 - Prompt preview:", systemPrompt.slice(-300))
+    latestItineraryPrompt = enrichedPrompt;
+
     const res = await fetch(BACKEND_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt })
+      body: JSON.stringify({ prompt: enrichedPrompt })
     });
 
     const data = await res.json();
     itineraryDiv.innerHTML = data.text || "<p>⚠️ No itinerary generated. Please try again.</p>";
+    const budgetChoiceShown = renderBudgetChoiceCardIfNeeded(data.text || "");
+    if (!budgetChoiceShown) {
+      await runBudgetIntegrityCheck();
+    }
+    renderBudgetWarningCard();
 
     console.log("Itinerary HTML:", itineraryDiv.innerHTML);
 
@@ -462,8 +986,10 @@ IMPORTANT: The place name must always be visible as the link text. Never add a s
     document.getElementById("transport-section").style.display = "block";
     document.getElementById("chat-section").style.display = "block";
     document.getElementById("download-pdf").style.display = "inline-block";
+    triggerTripValidator();
 
   } catch (err) {
+    loading.textContent = originalLoadingText;
     itineraryDiv.innerHTML = `<p style="color:red;">Error: ${err}</p>`;
     loading.style.display = "none";
     results.style.display = "block";
